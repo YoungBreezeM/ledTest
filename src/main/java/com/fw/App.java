@@ -21,6 +21,9 @@ public class App extends Application {
         primaryStage.setScene(scene);
         primaryStage.setTitle("led 灯测试");
         primaryStage.setResizable(false);
+        primaryStage.setOnCloseRequest(event -> {
+            System.exit(0);
+        });
         primaryStage.show();
     }
     public static void main(String[] args) {

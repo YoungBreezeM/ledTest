@@ -1,4 +1,4 @@
-package com.fw.controller.factory;
+package com.fw.factory;
 
 import java.util.concurrent.ThreadFactory;
 

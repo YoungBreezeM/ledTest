@@ -1,8 +1,13 @@
 package com.fw.controller;
 
-import com.fw.controller.factory.LedThreadFactory;
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONObject;
+import com.fw.domain.HandleChannel;
+import com.fw.domain.Led;
+import com.fw.domain.Request;
+import com.fw.domain.Response;
+import com.fw.factory.LedThreadFactory;
 import com.fw.server.LedServer;
-import com.fw.server.ReadThread;
 import javafx.scene.control.Button;
 import javafx.scene.control.RadioButton;
 import javafx.scene.control.TextField;
@@ -28,12 +33,22 @@ public class MainController {
     public TextField ledNumber;
     public Button initBtn;
     public FlowPane ledBox;
-    private LedServer ledServer;
+    private ThreadPoolExecutor threadPoolExecutor;
+    private List<RadioButton> radioButtons;
 
+    public MainController() {
+         threadPoolExecutor = new ThreadPoolExecutor(
+                10,
+                10,
+                5,
+                TimeUnit.MICROSECONDS,
+                new LinkedBlockingQueue<>(10),
+                new LedThreadFactory("led")
+        );
+    }
 
     public void initialize() {
         System.out.println("controller init");
-
 
     }
 
@@ -41,7 +56,7 @@ public class MainController {
 
         Integer num = Integer.valueOf(ledNumber.getText());
 
-        List<RadioButton> radioButtons = new ArrayList<>();
+        radioButtons = new ArrayList<>();
 
         ledBox.getChildren().clear();
 
@@ -56,43 +71,58 @@ public class MainController {
             ledBox.getChildren().add(radioButton);
         }
 
-        startServer(radioButtons);
+        //处理socket 对话
+        HandleChannel handleChannel =(outputStream, msg)->{
+            System.out.println(msg);
+
+            Response response = requestParsing(msg);
+
+            if(response!=null){
+                try {
+                    outputStream.writeObject(response);
+                    outputStream.flush();
+                }catch (Exception e){
+                    e.printStackTrace();
+                }
+            }
+
+        };
+
+        LedServer ledServer = new LedServer(8090, handleChannel);
+        threadPoolExecutor.execute(ledServer);
+        System.out.println("初始化任务发布");
 
     }
 
-    private void startServer(List<RadioButton> radioButtons){
-        try {
-            ServerSocket server = new ServerSocket(8090);
-            ThreadPoolExecutor threadPoolExecutor = new ThreadPoolExecutor(
-                    10,
-                    10,
-                    5,
-                    TimeUnit.MICROSECONDS,
-                    new LinkedBlockingQueue<>(10),
-                    new LedThreadFactory("led")
-            );
+    /**解析对话*/
+    private Response requestParsing(String msg){
 
-            threadPoolExecutor.execute(()->{
-                while (true) {
-                    // server将一直等待连接的到来
-                    System.out.println("server将一直等待连接的到来");
-                    Socket socket = null;
-                    try {
-                        socket = server.accept();
-                        ObjectInputStream objectInputStream = new ObjectInputStream(socket.getInputStream());
-                        ObjectOutputStream objectOutputStream = new ObjectOutputStream(socket.getOutputStream());
-                        threadPoolExecutor.execute(new ReadThread(objectInputStream,objectOutputStream,radioButtons));
+        Request request = JSON.parseObject(msg, Request.class);
 
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                }
-            });
-        }catch (Exception e){
-            e.printStackTrace();
+        switch (request.getUrl()){
+            case "/changeLed":
+                toChangeLed(request);
+                System.out.println(request);
+                return new Response(200,"success");
+            case "/getLedNum":
+                return new Response(200,radioButtons.size());
+            default:
+                return null;
         }
 
-
     }
+
+    /**改变led灯状态*/
+    private void toChangeLed(Request request){
+
+        Led led = JSONObject.parseObject(request.getBody().toString(), Led.class);
+        RadioButton radioButton = radioButtons.get(led.getIndex());
+        if(led.getStatus()){
+            radioButton.setSelected(true);
+        }else {
+            radioButton.setSelected(false);
+        }
+    }
+
 
 }
